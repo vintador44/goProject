@@ -1,0 +1,25 @@
+
+.information_container {
+    width: 350px;
+    height: 150px;
+    background-color: antiquewhite;
+    border-style: solid;
+    border-width: 2px;
+    border-radius: 5px;
+    margin: 5px;
+    padding: 10px;
+    margin-bottom: 0px;
+}
+.ic_labels {
+    list-style: none;
+}
+
+.ic_label {
+    font-size: 18px;
+    font-family: Roboto;
+}
+
+.ic_title {
+    font-family: Roboto;
+    font-size: 18px;
+}
