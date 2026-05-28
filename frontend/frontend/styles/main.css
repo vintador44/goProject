@@ -21,5 +21,14 @@
     flex-direction: row;
 }
 
+.page_title {
+    width: 100%;
+    
+    margin-top: 10px;
+    margin-left: 10px;
+    font-size: 2.5rem;
+   
+}
+
 
 

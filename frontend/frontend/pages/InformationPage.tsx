@@ -76,9 +76,15 @@ function InformationPage() {
     }, []);
 
     const MenuItems: MenuItem[] = [
-        { label: "Home" },
-        { label: "Home" },
-        { label: "Home" }
+        { 
+            label: "System Information",
+            path: "/"
+        },
+        { 
+            label: "Database Profiles",
+            path: "/databaseProfiles"
+        },
+        
     ];
 
     const CpuProps: InformationContainerProps =
@@ -151,6 +157,7 @@ function InformationPage() {
         <div className="main">
             <LeftSideBar menuItems={MenuItems} />
             <div className="main_content">
+                 <h1 className="page_title">System Information</h1>
                 <InformationContainer {...HostInfoProps} />
                 <InformationContainer {...RAMProps} />
                 <InformationContainer {...CpuProps} />
