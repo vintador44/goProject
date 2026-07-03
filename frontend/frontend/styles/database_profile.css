@@ -1,6 +1,15 @@
 .database_profile {
-    display: block;
-    width: 90%;
+    display: flex;
+    width: fit-content;
     height: 100px;
     border-style: solid;
+    margin: 10px;
+    padding: 10px;
+    border-radius: 10px;
+
+}
+.labels_container {
+    display: block;
+    padding: 5px;
+    width: 150px;
 }

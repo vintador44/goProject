@@ -84,6 +84,10 @@ function InformationPage() {
             label: "Database Profiles",
             path: "/databaseProfiles"
         },
+        {
+            label: "System Agent",
+            path: "/SysAgent"
+        }
         
     ];
 

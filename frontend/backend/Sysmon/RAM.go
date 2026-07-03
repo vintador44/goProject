@@ -1,6 +1,8 @@
 package sysmon
 
 import (
+	"bufio"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -13,16 +15,38 @@ type RAMInfo struct {
 }
 
 func (m *SystemMonitor) GetRAMInfo() RAMInfo {
-	totalKB := m.getWMICValue("TotalVisibleMemorySize")
-	freeKB := m.getWMICValue("FreePhysicalMemory")
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return RAMInfo{}
+	}
+	defer file.Close()
+	var totalKB, freeKB, availableKB float64
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "MemTotal:":
+			totalKB, _ = strconv.ParseFloat(fields[1], 64)
+		case "MemFree:":
+			freeKB, _ = strconv.ParseFloat(fields[1], 64)
+
+		case "MemAvailable:":
+			availableKB, _ = strconv.ParseFloat(fields[1], 64)
+		}
+	}
+	freeKB = freeKB + 0
 	if totalKB <= 0 {
 		return RAMInfo{}
 	}
-	totalGB := totalKB / 1024 / 1024
-	usedKB := totalKB - freeKB
+	usedKB := totalKB - availableKB
 	if usedKB < 0 {
 		usedKB = 0
 	}
+	totalGB := totalKB / 1024 / 1024
 	usedGB := usedKB / 1024 / 1024
 	percent := (usedKB / totalKB) * 100
 	if percent > 100 {

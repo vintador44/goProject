@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
-	sysmon "frontend/Sysmon"
+	data_admin "frontend/backend/DataAdmin"
+	sysagent "frontend/backend/SysAgent"
+	sysmon "frontend/backend/Sysmon"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -16,6 +18,8 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 	monitor := &sysmon.SystemMonitor{}
+	db_data := data_admin.NewDataAdmin()
+	sys_agent := sysagent.New()
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "frontend",
@@ -29,6 +33,8 @@ func main() {
 		Bind: []interface{}{
 			app,
 			monitor,
+			db_data,
+			sys_agent,
 		},
 	})
 

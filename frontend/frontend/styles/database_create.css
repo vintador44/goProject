@@ -1,0 +1,52 @@
+.database_settings {
+    width: 100%;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 20px 0;
+    padding-left: 10px;
+}
+
+.database_settings .field {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.database_settings label {
+    min-width: 80px;
+    font-size: 14px;
+    color: #ccc;
+}
+
+.database_settings .db_input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #111;
+    color: #eee;
+    font-size: 14px;
+}
+
+.database_settings .db_input:focus {
+    border-color: #888;
+    outline: none;
+}
+
+.database_settings button {
+    margin-top: 12px;
+    padding: 10px;
+    background: #007bff;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.database_settings button:hover {
+    background: #0056b3;
+}

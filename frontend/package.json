@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "react-datasheet-grid": "^4.11.6",
+    "react-hook-form": "^7.79.0",
     "react-router-dom": "^7.14.0",
     "typeorm": "^0.3.28"
   }
