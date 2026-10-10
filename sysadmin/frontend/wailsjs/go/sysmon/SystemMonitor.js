@@ -6,6 +6,10 @@ export function GetCPUInfo() {
   return window['go']['sysmon']['SystemMonitor']['GetCPUInfo']();
 }
 
+export function GetCPUTemperature() {
+  return window['go']['sysmon']['SystemMonitor']['GetCPUTemperature']();
+}
+
 export function GetDiskInfo(arg1) {
   return window['go']['sysmon']['SystemMonitor']['GetDiskInfo'](arg1);
 }
@@ -16,6 +20,10 @@ export function GetDiskInfoCross() {
 
 export function GetGPUInfo() {
   return window['go']['sysmon']['SystemMonitor']['GetGPUInfo']();
+}
+
+export function GetGPUInfoCross() {
+  return window['go']['sysmon']['SystemMonitor']['GetGPUInfoCross']();
 }
 
 export function GetNetworkInfo() {

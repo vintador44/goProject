@@ -120,6 +120,7 @@ export namespace sysmon {
 	    Name: string;
 	    Cores: number;
 	    LoadPct: number;
+	    Temperature?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CPUInfo(source);
@@ -130,9 +131,27 @@ export namespace sysmon {
 	        this.Name = source["Name"];
 	        this.Cores = source["Cores"];
 	        this.LoadPct = source["LoadPct"];
+	        this.Temperature = source["Temperature"];
+	    }
+	}
+	export class CPUTemperature {
+	    Celsius: number;
+	    Sensor: string;
+	    Available: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CPUTemperature(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Celsius = source["Celsius"];
+	        this.Sensor = source["Sensor"];
+	        this.Available = source["Available"];
 	    }
 	}
 	export class DiskInfo {
+	    Name: string;
 	    TotalGB: number;
 	    FreeGB: number;
 	    UsedPercent: number;
@@ -143,6 +162,7 @@ export namespace sysmon {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Name = source["Name"];
 	        this.TotalGB = source["TotalGB"];
 	        this.FreeGB = source["FreeGB"];
 	        this.UsedPercent = source["UsedPercent"];
@@ -150,6 +170,8 @@ export namespace sysmon {
 	}
 	export class GPUInfo {
 	    Name: string;
+	    Temp?: number;
+	    Load?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new GPUInfo(source);
@@ -158,6 +180,8 @@ export namespace sysmon {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Name = source["Name"];
+	        this.Temp = source["Temp"];
+	        this.Load = source["Load"];
 	    }
 	}
 	export class NetworkAdapter {

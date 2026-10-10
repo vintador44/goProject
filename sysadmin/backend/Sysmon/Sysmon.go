@@ -1,8 +1,10 @@
 package sysmon
 
 import (
-	"os"
-	"runtime"
+	"log"
+	"net"
+
+	host "github.com/shirou/gopsutil/v4/host"
 )
 
 type SystemMonitor struct {
@@ -21,14 +23,23 @@ func truncate(s string, maxLen int) string {
 }
 
 func getHostname() string {
-	name, err := os.Hostname()
+	info, err := host.Info()
 	if err != nil {
-		return "Unknown"
+		log.Fatalf("Не удалось получить инфо о хосте: %v", err)
 	}
-	return name
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		log.Fatalf("Ошибка определения IP: %v", err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	format_info := info.OS + " " + info.KernelArch + " " + info.Platform + " " + localAddr.IP.String() + " " + info.Hostname
+
+	return format_info
 }
 
 // HostInfo возвращает базовую информацию о системе
-func (m *SystemMonitor) HostInfo() (hostname, osName string) {
-	return getHostname(), runtime.GOOS
+func (m *SystemMonitor) HostInfo() (host string) {
+	return getHostname()
 }

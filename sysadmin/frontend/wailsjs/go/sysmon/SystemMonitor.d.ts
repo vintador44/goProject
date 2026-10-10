@@ -4,11 +4,15 @@ import {sysmon} from '../models';
 
 export function GetCPUInfo():Promise<sysmon.CPUInfo>;
 
+export function GetCPUTemperature():Promise<sysmon.CPUTemperature>;
+
 export function GetDiskInfo(arg1:string):Promise<sysmon.DiskInfo>;
 
 export function GetDiskInfoCross():Promise<Array<sysmon.DiskInfo>>;
 
 export function GetGPUInfo():Promise<sysmon.GPUInfo>;
+
+export function GetGPUInfoCross():Promise<sysmon.GPUInfo>;
 
 export function GetNetworkInfo():Promise<sysmon.NetworkInfo>;
 
@@ -16,4 +20,4 @@ export function GetRAMInfo():Promise<sysmon.RAMInfo>;
 
 export function GetRAMInfoCross():Promise<sysmon.RAMInfo>;
 
-export function HostInfo():Promise<string|string>;
+export function HostInfo():Promise<string>;

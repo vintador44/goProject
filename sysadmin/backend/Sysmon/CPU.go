@@ -3,26 +3,47 @@ package sysmon
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	cpu "github.com/shirou/gopsutil/v4/cpu"
 )
 
 type CPUInfo struct {
-	Name    string
-	Cores   int
-	LoadPct float64
+	Name        string
+	Cores       int
+	LoadPct     float64
+	Temperature *float64
 }
 
 func (m *SystemMonitor) GetCPUInfo() CPUInfo {
-	name := m.getCPUName()
-	cores := runtime.NumCPU()
-	load := m.getCPULoad()
+	info, err := cpu.Info()
+	name := "Unknown"
+	if err == nil && len(info) > 0 {
+		name = strings.TrimSpace(info[0].ModelName)
+		if name == "" {
+			name = info[0].Model
+		}
+	}
+	load := 0.0
+	if percentages, err := cpu.Percent(time.Second, false); err == nil && len(percentages) > 0 {
+		load = percentages[0]
+	}
+
+	temperature := m.GetCPUTemperature()
+	var temperatureCelsius *float64
+	if temperature.Available {
+		temperatureCelsius = &temperature.Celsius
+	}
+
 	return CPUInfo{
-		Name:    name,
-		Cores:   cores,
-		LoadPct: load,
+		Name:        name,
+		Cores:       runtime.NumCPU(),
+		LoadPct:     load,
+		Temperature: temperatureCelsius,
 	}
 }
 
@@ -106,4 +127,143 @@ func (m *SystemMonitor) getCPULoad() float64 {
 		return 0.0
 	}
 	return loadPct
+}
+
+type CPUTemperature struct {
+	Celsius   float64
+	Sensor    string
+	Available bool
+}
+
+type tempCandidate struct {
+	value    float64
+	driver   string
+	label    string
+	priority int
+}
+
+func (m *SystemMonitor) GetCPUTemperature() CPUTemperature {
+	hwmonPaths, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
+
+	var candidates []tempCandidate
+
+	for _, path := range hwmonPaths {
+		nameBytes, err := os.ReadFile(filepath.Join(path, "name"))
+		if err != nil {
+			continue
+		}
+
+		driver := strings.ToLower(strings.TrimSpace(string(nameBytes)))
+
+		inputs, _ := filepath.Glob(filepath.Join(path, "temp*_input"))
+
+		for _, input := range inputs {
+			raw, err := os.ReadFile(input)
+			if err != nil {
+				continue
+			}
+
+			milliCelsius, err := strconv.ParseFloat(
+				strings.TrimSpace(string(raw)), 64,
+			)
+			if err != nil {
+				continue
+			}
+
+			celsius := milliCelsius / 1000
+			if celsius < -50 || celsius > 250 {
+				continue
+			}
+
+			base := strings.TrimSuffix(input, "_input")
+			labelBytes, _ := os.ReadFile(base + "_label")
+			label := strings.TrimSpace(string(labelBytes))
+
+			priority := cpuTempPriority(driver, label)
+			if priority == 0 {
+				continue
+			}
+
+			candidates = append(candidates, tempCandidate{
+				value:    celsius,
+				driver:   driver,
+				label:    label,
+				priority: priority,
+			})
+		}
+	}
+
+	if len(candidates) == 0 {
+		return CPUTemperature{Available: false}
+	}
+
+	best := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate.priority > best.priority {
+			best = candidate
+		} else if candidate.priority == best.priority &&
+			candidate.value > best.value {
+			best = candidate
+		}
+	}
+
+	label := best.label
+	if label == "" {
+		label = "temperature"
+	}
+
+	return CPUTemperature{
+		Celsius:   best.value,
+		Sensor:    best.driver + ":" + label,
+		Available: true,
+	}
+}
+
+func cpuTempPriority(driver, label string) int {
+	d := strings.ToLower(driver)
+	l := strings.ToLower(strings.TrimSpace(label))
+
+	switch d {
+	case "coretemp":
+		if strings.HasPrefix(l, "package id") {
+			return 100
+		}
+		if strings.HasPrefix(l, "core ") {
+			return 90
+		}
+
+		if l == "" {
+			return 80
+		}
+
+	case "k10temp", "zenpower":
+		switch l {
+		case "tdie":
+			return 100
+		case "tctl":
+			return 90
+		}
+
+		if l == "" && d == "k10temp" {
+			return 70
+		}
+
+	case "peci_cputemp":
+		if l == "" || l == "die" {
+			return 95
+		}
+	}
+
+	if strings.Contains(d, "cpu") ||
+		strings.Contains(d, "cputemp") {
+		if l == "" ||
+			strings.Contains(l, "cpu") ||
+			strings.Contains(l, "package") ||
+			strings.Contains(l, "tdie") ||
+			l == "die" {
+			return 60
+		}
+	}
+
+	return 0
 }

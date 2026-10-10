@@ -1,12 +1,11 @@
 package sysmon
 
 import (
-	"syscall"
-
 	disk "github.com/shirou/gopsutil/v4/disk"
 )
 
 type DiskInfo struct {
+	Name        string
 	TotalGB     float64
 	FreeGB      float64
 	UsedPercent float64
@@ -14,31 +13,24 @@ type DiskInfo struct {
 
 func (m *SystemMonitor) GetDiskInfo(drive string) DiskInfo {
 	if drive == "" {
-		drive = "/"
+		partitions, err := disk.Partitions(false)
+		if err != nil || len(partitions) == 0 {
+			return DiskInfo{}
+		}
+		drive = partitions[0].Mountpoint
 	}
-	var stat syscall.Statfs_t
-	err := syscall.Statfs(drive, &stat)
+	usage, err := disk.Usage(drive)
 	if err != nil {
 		return DiskInfo{}
 	}
-	totalB := stat.Blocks * uint64(stat.Bsize)
-	freeB := stat.Bfree * uint64(stat.Bsize)
-	if totalB == 0 {
+	if usage.Total == 0 {
 		return DiskInfo{}
 	}
-	totalGB := float64(totalB) / 1024 / 1024 / 1024
-	freeGB := float64(freeB) / 1024 / 1024 / 1024
-	usedPercent := (1.0 - float64(freeB)/float64(totalB)) * 100
-	if usedPercent < 0 {
-		usedPercent = 0
-	}
-	if usedPercent > 100 {
-		usedPercent = 100
-	}
 	return DiskInfo{
-		TotalGB:     totalGB,
-		FreeGB:      freeGB,
-		UsedPercent: usedPercent,
+		Name:        drive,
+		TotalGB:     float64(usage.Total) / (1 << 30),
+		FreeGB:      float64(usage.Free) / (1 << 30),
+		UsedPercent: usage.UsedPercent,
 	}
 }
 
@@ -55,7 +47,12 @@ func (m *SystemMonitor) GetDiskInfoCross() []DiskInfo {
 		if err != nil {
 			continue
 		}
+		name := part.Device
+		if name == "" {
+			name = part.Mountpoint
+		}
 		diskInfos = append(diskInfos, DiskInfo{
+			Name:        name,
 			TotalGB:     float64(usage.Total) / gib,
 			FreeGB:      float64(usage.Free) / gib,
 			UsedPercent: usage.UsedPercent,
