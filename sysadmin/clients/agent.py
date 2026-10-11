@@ -1,4 +1,3 @@
-from pprint import pprint
 import socket
 import json
 import time
@@ -10,18 +9,15 @@ import sys
 import os
 import shutil
 import threading
-import sqlite3
 from pynput import keyboard
 from pynput.mouse import Button, Controller as MouseController
 import tkinter as tk
 from tkinter import simpledialog
 
-try:
-    import clr
-
-    HAS_PYTHONNET = True
-except ImportError:
-    HAS_PYTHONNET = False
+if __package__:
+    from . import Metrics
+else:
+    import Metrics
 
 TCP_PORT = 65432
 UDP_PORT = 65433
@@ -34,9 +30,6 @@ CACHED_CPU_MODEL = "Н/Д"
 CACHED_GPU_MODEL = "Н/Д"
 _mutex_handle = None
 overlay_root_ref = None
-
-PREV_NET_IO = None
-PREV_NET_TIME = None
 
 
 def log_message(message):
@@ -65,48 +58,6 @@ def is_already_running():
     except Exception as e:
         log_message(f"Ошибка при создании мьютекса: {e}")
         return False
-
-
-def init_db():
-    try:
-        base_path = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(
-            os.path.abspath(__file__))
-        db_path = os.path.join(base_path, "agent_history.db")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS metrics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            cpu_percent REAL,
-            ram_percent REAL,
-            gpu_percent REAL,
-            raw_json TEXT
-        )
-        """)
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        log_message(f"Ошибка инициализации БД: {e}")
-
-
-def save_metric_to_db(metrics):
-    try:
-        base_path = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(
-            os.path.abspath(__file__))
-        db_path = os.path.join(base_path, "agent_history.db")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO metrics (timestamp, cpu_percent, ram_percent, gpu_percent, raw_json)
-        VALUES (?, ?, ?, ?, ?)
-        """, (time.strftime('%Y-%m-%d %H:%M:%S'), metrics['cpu_percent'], metrics['ram_percent'],
-              metrics['gpu_percent'], json.dumps(metrics)))
-        cursor.execute("DELETE FROM metrics WHERE id NOT IN (SELECT id FROM metrics ORDER BY id DESC LIMIT 60)")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        log_message(f"Ошибка сохранения метрики в БД: {e}")
 
 
 def show_user_notification(text, stop_event=None):
@@ -278,18 +229,6 @@ def clear_temp_files():
     log_message(f"Очистка TEMP завершена. Файлов: {deleted_files}, Папок: {deleted_dirs}")
 
 
-def get_top_processes():
-    processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_info']):
-        try:
-            pinfo = proc.info
-            pinfo['memory_mb'] = round(pinfo['memory_info'].rss / (1024 * 1024), 1)
-            processes.append(pinfo)
-        except:
-            continue
-    return sorted(processes, key=lambda x: x['cpu_percent'] if x['cpu_percent'] else 0, reverse=True)[:10]
-
-
 def start_overlay():
     global overlay_root_ref
     try:
@@ -401,223 +340,59 @@ def handle_server_command(cmd, server_ip):
 
 
 def setup_agent_firewall():
-    if platform.system() == "Windows":
-        try:
-            subprocess.run('netsh advfirewall firewall delete rule name="SysAdmin_Agent_UDP"', shell=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(
-                f'netsh advfirewall firewall add rule name="SysAdmin_Agent_UDP" dir=in action=allow protocol=UDP localport={UDP_PORT}',
-                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception as e:
-            log_message(f"Ошибка файрвола: {e}")
+    Metrics.setup_agent_firewall(UDP_PORT, log_message)
 
 
 def discover_server_ip():
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        s.settimeout(1.5)
-        for _ in range(2):
-            try:
-                s.sendto(b"DISCOVER_SYSADMIN_SERVER", ('255.255.255.255', UDP_PORT))
-                data, addr = s.recvfrom(1024)
-                if data == b"HERE_IS_SYSADMIN_SERVER":
-                    return addr[0]
-            except:
-                pass
-        return None
+    return Metrics.discover_server_ip(UDP_PORT)
 
 
 def init_libre_hardware_monitor():
     global lhm_computer
-    if not HAS_PYTHONNET:
-        return
-    try:
-        base_path = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-        dll_path = os.path.join(base_path, "LibreHardwareMonitorLib.dll")
-        if os.path.exists(dll_path):
-            clr.AddReference(dll_path)
-            from LibreHardwareMonitor.Hardware import Computer
-            lhm_computer = Computer()
-            lhm_computer.IsCpuEnabled = True
-            lhm_computer.IsGpuEnabled = True
-            lhm_computer.IsStorageEnabled = True
-            lhm_computer.Open()
-        else:
-            log_message(f"DLL не найдена: {dll_path}")
-    except Exception as e:
-        log_message(f"Ошибка LHM: {e}")
+    lhm_computer = Metrics.init_libre_hardware_monitor(log_message)
 
 
 def fetch_static_models():
     global CACHED_CPU_MODEL, CACHED_GPU_MODEL
-    if platform.system() == "Windows":
-        try:
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
-            CACHED_CPU_MODEL = winreg.QueryValueEx(key, "ProcessorNameString")[0].strip()
-        except:
-            CACHED_CPU_MODEL = platform.processor()
-    else:
-        CACHED_CPU_MODEL = platform.processor()
-    try:
-        cmd = 'powershell "(Get-CimInstance Win32_VideoController).Name"'
-        out = subprocess.check_output(cmd, shell=True, stderr=subprocess.DEVNULL).decode(errors='ignore').strip()
-        if out:
-            lines = [l.strip() for l in out.splitlines() if l.strip()]
-            CACHED_GPU_MODEL = lines[0] if lines else "Неизвестно"
-    except:
-        CACHED_GPU_MODEL = "Н/Д"
+    CACHED_CPU_MODEL, CACHED_GPU_MODEL = Metrics.fetch_static_models()
 
 
 def get_cpu_temperature():
-    if not lhm_computer:
-        return "Н/Д"
-    try:
-        from LibreHardwareMonitor.Hardware import SensorType
-        cpu_package = None
-        temps = []
-        for hardware in lhm_computer.Hardware:
-            hardware.Update()
-            for sub in hardware.SubHardware:
-                sub.Update()
-            for sensor in hardware.Sensors:
-                if sensor.SensorType != SensorType.Temperature or sensor.Value is None:
-                    continue
-                temp = float(sensor.Value)
-                if not (20 <= temp <= 110):
-                    continue
-                if "package" in sensor.Name.lower():
-                    cpu_package = temp
-                temps.append(temp)
-        if cpu_package:
-            return f"{cpu_package:.1f}°C"
-        if temps:
-            return f"{max(temps):.1f}°C"
-    except Exception as e:
-        log_message(f"CPU TEMP ERROR: {e}")
-        return "Н/Д"
+    return Metrics.get_cpu_temperature(lhm_computer, log_message)
 
 
 def get_gpu_util_and_temp():
-    gpu_util = 0.0
-    gpu_temp = "Н/Д"
-    if lhm_computer:
-        try:
-            from LibreHardwareMonitor.Hardware import HardwareType, SensorType
-            for hardware in lhm_computer.Hardware:
-                if hardware.HardwareType in [HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel]:
-                    hardware.Update()
-                    for sensor in hardware.Sensors:
-                        if sensor.SensorType == SensorType.Load and sensor.Value is not None:
-                            gpu_util = round(float(sensor.Value), 1)
-                        elif sensor.SensorType == SensorType.Temperature and sensor.Value is not None:
-                            gpu_temp = f"{round(float(sensor.Value), 1)}°C"
-        except Exception as e:
-            log_message(f"GPU error: {e}")
-    return gpu_util, gpu_temp
+    return Metrics.get_gpu_util_and_temp(lhm_computer, log_message)
 
 
 def get_disk_metrics():
-    disks_list = []
-    try:
-        for part in psutil.disk_partitions():
-            if platform.system() == "Windows" and "cdrom" in part.opts:
-                continue
-            try:
-                usage = psutil.disk_usage(part.mountpoint)
-                clean_name = part.mountpoint.replace("\\", "/")
-                disks_list.append({
-                    "device": clean_name if clean_name else part.mountpoint,
-                    "total": round(usage.total / (1024 ** 3), 1),
-                    "free": round(usage.free / (1024 ** 3), 1),
-                    "percent": usage.percent
-                })
-            except:
-                pass
-    except Exception as e:
-        log_message(f"Disk metric collection error: {e}")
-    return disks_list
+    return Metrics.get_disk_metrics(log_message)
 
 
 def get_network_metrics():
-    network_data = {}
-    try:
-        net_io = psutil.net_io_counters(pernic=True)
-        for name, io in net_io.items():
-            if any(x in name.lower() for x in ["virtualbox", "vbox", "vethernet", "vpn", "loopback"]):
-                continue
-            network_data[name] = {
-                "sent": round(io.bytes_sent / (1024 * 1024), 1),
-                "recv": round(io.bytes_recv / (1024 * 1024), 1)
-            }
-    except Exception as e:
-        log_message(f"Network metric collection error: {e}")
-    return network_data
+    return Metrics.get_network_metrics(log_message)
 
 
 def get_network_utilization_percentage():
-    global PREV_NET_IO, PREV_NET_TIME
-    try:
-        current_io = psutil.net_io_counters()
-        current_time = time.time()
-        if PREV_NET_IO is None or PREV_NET_TIME is None:
-            PREV_NET_IO = current_io
-            PREV_NET_TIME = current_time
-            return 0.0
-
-        dt = current_time - PREV_NET_TIME
-        if dt <= 0:
-            return 0.0
-
-        bytes_sent_diff = current_io.bytes_sent - PREV_NET_IO.bytes_sent
-        bytes_recv_diff = current_io.bytes_recv - PREV_NET_IO.bytes_recv
-        total_bytes_diff = bytes_sent_diff + bytes_recv_diff
-
-        speed_mbps = 100
-        try:
-            stats = psutil.net_if_stats()
-            io_per_nic = psutil.net_io_counters(pernic=True)
-            for nic, stat in stats.items():
-                if stat.isup and stat.speed > 0:
-                    if nic in io_per_nic and io_per_nic[nic].bytes_recv > 0:
-                        speed_mbps = stat.speed
-                        break
-        except:
-            pass
-
-        bits_per_sec = (total_bytes_diff / dt) * 8
-        max_bits_per_sec = speed_mbps * 1000000
-        util_percent = (bits_per_sec / max_bits_per_sec) * 100
-        util_percent = max(0.0, min(100.0, round(util_percent, 2)))
-
-        PREV_NET_IO = current_io
-        PREV_NET_TIME = current_time
-        return util_percent
-    except:
-        return 0.0
+    return Metrics.get_network_utilization_percentage()
 
 
 def collect_metrics():
-    gpu_util, gpu_temp = get_gpu_util_and_temp()
-    ram = psutil.virtual_memory()
-   
-    utils =  {
-        "hostname": platform.node(),
-        "cpu_model": CACHED_CPU_MODEL,
-        "gpu_model": CACHED_GPU_MODEL,
-        "cpu_temp": get_cpu_temperature(),
-        "cpu_percent": psutil.cpu_percent(interval=0.1),
-        "ram_percent": ram.percent,
-        "ram_total": round(ram.total / (1024 ** 3), 1),
-        "gpu_percent": gpu_util,
-        "gpu_temp": gpu_temp,
-        "net_percent": get_network_utilization_percentage(),
-        "disks": get_disk_metrics(),
-        "network": get_network_metrics(),
-        "processes": get_top_processes()
-    }
-    pprint(utils, indent=4, width=40)
-    return utils
+    return Metrics.collect_metrics(
+        CACHED_CPU_MODEL, CACHED_GPU_MODEL, lhm_computer, log_message
+    )
+
+
+def init_db():
+    Metrics.init_db(log_message)
+
+
+def save_metric_to_db(metrics):
+    Metrics.save_metric_to_db(metrics, log_message)
+
+
+def get_top_processes():
+    return Metrics.get_top_processes()
 
 
 def send_data():
