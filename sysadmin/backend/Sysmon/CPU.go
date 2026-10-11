@@ -2,6 +2,7 @@ package sysmon
 
 import (
 	"bufio"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,6 +21,14 @@ type CPUInfo struct {
 }
 
 func (m *SystemMonitor) GetCPUInfo() CPUInfo {
+	if runtime.GOOS == "windows" {
+		info, err := windowsCPUInfo()
+		if err == nil {
+			return info
+		}
+		log.Printf("Не удалось получить данные CPU из HardwareLibreHelper: %v", err)
+	}
+
 	info, err := cpu.Info()
 	name := "Unknown"
 	if err == nil && len(info) > 0 {

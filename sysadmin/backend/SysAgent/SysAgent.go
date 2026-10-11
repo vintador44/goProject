@@ -33,7 +33,8 @@ type Metrics struct {
 	GPUModel      string                   `json:"gpu_model"`
 	GPUTemp       string                   `json:"gpu_temp"`
 	Disks         []map[string]interface{} `json:"disks"`
-	NetInterfaces map[string]interface{}   `json:"net_interfaces"`
+	NetInterfaces map[string]interface{}   `json:"network"`
+	Processes     []map[string]interface{} `json:"processes"`
 }
 
 // DeviceInfo — хранит последние данные и IP устройства

@@ -40,7 +40,8 @@ export namespace sysagent {
 	    gpu_model: string;
 	    gpu_temp: string;
 	    disks: any[];
-	    net_interfaces: Record<string, any>;
+	    network: Record<string, any>;
+	    processes: any[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Metrics(source);
@@ -58,7 +59,8 @@ export namespace sysagent {
 	        this.gpu_model = source["gpu_model"];
 	        this.gpu_temp = source["gpu_temp"];
 	        this.disks = source["disks"];
-	        this.net_interfaces = source["net_interfaces"];
+	        this.network = source["network"];
+	        this.processes = source["processes"];
 	    }
 	}
 	export class DeviceInfo {

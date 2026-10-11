@@ -2,9 +2,11 @@ package sysmon
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,14 @@ type GPUInfo struct {
 }
 
 func (m *SystemMonitor) GetGPUInfo() GPUInfo {
+	if runtime.GOOS == "windows" {
+		info, err := windowsGPUInfo()
+		if err == nil {
+			return info
+		}
+		log.Printf("Не удалось получить данные GPU из HardwareLibreHelper: %v", err)
+	}
+
 	if gpu, found := readNvidiaGPU(); found {
 		return gpu
 	}

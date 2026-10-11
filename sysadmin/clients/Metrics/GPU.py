@@ -63,7 +63,8 @@ def get_gpu_util_and_temp_linux(log_message):
                 gpu_temp = f"{temp}°C"
                 return gpu_util, gpu_temp, gpu_name
         except Exception as e:
-            log_message(f"NVIDIA GPU unavailable; trying AMD: {e}")
+            if "NVML Shared Library Not Found" not in str(e):
+                log_message(f"NVIDIA GPU unavailable: {e}")
         finally:
             if nvml_initialized:
                 pynvml.nvmlShutdown()

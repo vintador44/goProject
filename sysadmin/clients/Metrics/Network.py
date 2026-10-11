@@ -1,3 +1,4 @@
+import socket
 import time
 
 import psutil
@@ -10,13 +11,32 @@ def get_network_metrics(log_message):
     network_data = {}
     try:
         net_io = psutil.net_io_counters(pernic=True)
+        interface_addresses = psutil.net_if_addrs()
         ignored_adapters = ["virtualbox", "vbox", "vethernet", "vpn", "loopback"]
-        for name, io in net_io.items():
-            if any(adapter in name.lower() for adapter in ignored_adapters):
+        mac_family = getattr(psutil, "AF_LINK", None)
+
+        for name in interface_addresses.keys() | net_io.keys():
+            normalized_name = name.lower()
+            if normalized_name in ("lo", "loopback") or any(
+                adapter in normalized_name for adapter in ignored_adapters
+            ):
                 continue
+
+            ips = []
+            mac = "Не определен"
+            for address in interface_addresses.get(name, []):
+                if address.family == socket.AF_INET or address.family == socket.AF_INET6:
+                    ips.append(address.address.split("%", 1)[0])
+                elif mac_family is not None and address.family == mac_family:
+                    if address.address and address.address != "00:00:00:00:00:00":
+                        mac = address.address
+
+            io = net_io.get(name)
             network_data[name] = {
-                "sent": round(io.bytes_sent / (1024 * 1024), 1),
-                "recv": round(io.bytes_recv / (1024 * 1024), 1),
+                "ips": ips,
+                "mac": mac,
+                "sent": round(io.bytes_sent / (1024 * 1024), 1) if io else 0.0,
+                "recv": round(io.bytes_recv / (1024 * 1024), 1) if io else 0.0,
             }
     except Exception as e:
         log_message(f"Network metric collection error: {e}")

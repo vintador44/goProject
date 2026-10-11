@@ -41,6 +41,7 @@ export default function SysAgent() {
     labels: [
       "CPU model: " + activeData?.metrics.cpu_model,
       "CPU percent: " + activeData?.metrics.cpu_percent,
+      "CPU temp: " + activeData?.metrics.cpu_temp,
     ],
     chartBase: [
       ["CPU", activeData?.metrics.cpu_percent ?? 0],
@@ -67,6 +68,7 @@ export default function SysAgent() {
     labels: [
       "GPU model: " + activeData?.metrics.gpu_model,
       "GPU percent: " + activeData?.metrics.gpu_percent + " %",
+      "GPU temp: " + activeData?.metrics.gpu_temp + " °C",
       
     ],
     chartBase: [
@@ -76,8 +78,8 @@ export default function SysAgent() {
     metadata: "%",
   };
   const NetworkAdaptersProps: InformationContainerProps[] = activeData?.metrics
-    ?.net_interfaces
-    ? Object.entries(activeData.metrics.net_interfaces).map(
+    ?.network
+    ? Object.entries(activeData.metrics.network).map(
         ([name, info]: [string, any]) => {
           const ipsString = info.ips?.join(", ") || "N/A";
           return {
