@@ -10,6 +10,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/wailsapp/wails/v2 v2.12.0
+	golang.org/x/crypto v0.49.0
 )
 
 require (
@@ -42,7 +43,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.35.0 // indirect

@@ -23,15 +23,25 @@ export const InformationContainer: React.FC<InformationContainerProps> = ({
   maxValue = 100,
   metadata = "",
   className,
+  ...sectionProps
 }) => {
   return (
-    <section className={cn("min-w-0 rounded border bg-accent p-3", className)}>
-      <h2 className="mb-2 break-words text-base font-semibold text-slate-100">
+    <section
+      {...sectionProps}
+      className={cn(
+        "relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card p-4 shadow-sm transition-shadow hover:shadow-md before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-gradient-to-r before:from-cyan-500 before:via-sky-400 before:to-transparent",
+        className,
+      )}
+    >
+      <h2 className="mb-3 break-words text-base font-semibold tracking-tight text-card-foreground">
         {title}
       </h2>
-      <ul className="space-y-1 text-sm text-slate-300">
+      <ul className="space-y-1.5 text-xs leading-5 text-muted-foreground sm:text-sm">
         {labels.map((item, index) => (
-          <li key={index} className="break-words">
+          <li
+            key={index}
+            className="break-words whitespace-pre-line rounded-md bg-background/50 px-2.5 py-1.5"
+          >
             {item}
           </li>
         ))}
@@ -39,7 +49,7 @@ export const InformationContainer: React.FC<InformationContainerProps> = ({
       {chartBase?.length && maxValue > 0 ? (
         <>
           <ChartContainer
-            className="mt-2 h-48 w-full"
+            className="mt-3 h-36 w-full"
             config={
               {
                 value: { label: "Number", color: "var(--chart-1)" },
@@ -56,7 +66,7 @@ export const InformationContainer: React.FC<InformationContainerProps> = ({
               endAngle={-270}
               innerRadius="25%"
               outerRadius="100%"
-              barSize={16}
+              barSize={12}
             >
               <ChartTooltip
                 content={
@@ -85,7 +95,7 @@ export const InformationContainer: React.FC<InformationContainerProps> = ({
                   dataKey="name"
                   position="insideStart"
                   fill="#070606"
-                  fontSize={14}
+                  fontSize={12}
                   fontWeight={600}
                 />
               </RadialBar>

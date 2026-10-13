@@ -14,10 +14,7 @@ from pynput.mouse import Button, Controller as MouseController
 import tkinter as tk
 from tkinter import simpledialog
 
-if __package__:
-    from . import Metrics
-else:
-    import Metrics
+import Metrics
 
 TCP_PORT = 65432
 UDP_PORT = 65433
@@ -25,6 +22,8 @@ SHELL_PORT = 65434
 RDP_PORT = 65435
 
 console_allocated = False
+ssh_setup_result = None
+ssh_setup_result_lock = threading.Lock()
 lhm_computer = None
 CACHED_CPU_MODEL = "Н/Д"
 CACHED_GPU_MODEL = "Н/Д"
@@ -181,27 +180,35 @@ def remote_shell_client(server_ip):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((server_ip, SHELL_PORT))
-            while True:
-                cmd_bytes = s.recv(4096)
-                if not cmd_bytes:
-                    break
-                cmd_str = cmd_bytes.decode('utf-8', errors='ignore').strip()
-                if cmd_str.lower() == 'exit':
-                    break
+            with s.makefile("rwb") as stream:
+                handshake = {"hostname": platform.node()}
+                stream.write((json.dumps(handshake) + "\n").encode("utf-8"))
+                stream.flush()
 
-                try:
-                    res = subprocess.run(cmd_str, shell=True, capture_output=True, timeout=15)
+                for line in stream:
+                    request = json.loads(line.decode("utf-8"))
+                    cmd_str = request.get("command", "")
                     try:
-                        out_str = res.stdout.decode('cp866') + res.stderr.decode('cp866')
-                    except:
-                        out_str = res.stdout.decode('utf-8', errors='ignore') + res.stderr.decode('utf-8',
-                                                                                                  errors='ignore')
-                except Exception as e:
-                    out_str = f"Ошибка: {e}\n"
+                        res = subprocess.run(
+                            cmd_str,
+                            shell=True,
+                            capture_output=True,
+                            timeout=15,
+                        )
+                        try:
+                            out_str = res.stdout.decode("cp866") + res.stderr.decode("cp866")
+                        except UnicodeDecodeError:
+                            out_str = res.stdout.decode("utf-8", errors="replace") + res.stderr.decode(
+                                "utf-8", errors="replace"
+                            )
+                    except Exception as e:
+                        out_str = f"Ошибка: {e}\n"
 
-                if not out_str:
-                    out_str = "Команда выполнена, вывод пуст.\n"
-                s.sendall(out_str.encode('utf-8', errors='ignore'))
+                    if not out_str:
+                        out_str = "Команда выполнена, вывод пуст.\n"
+                    response = {"output": out_str}
+                    stream.write((json.dumps(response) + "\n").encode("utf-8"))
+                    stream.flush()
     except Exception as e:
         log_message(f"Удаленный сеанс терминала завершен: {e}")
 
@@ -294,9 +301,8 @@ def toggle_overlay():
 
 def handle_server_command(cmd, server_ip):
     global console_allocated, overlay_root_ref
-    if platform.system() != "Windows":
-        return
-    if cmd == "SHOW" and not console_allocated:
+    is_windows = platform.system() == "Windows"
+    if cmd == "SHOW" and is_windows and not console_allocated:
         try:
             ctypes.windll.kernel32.AllocConsole()
             sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
@@ -304,7 +310,7 @@ def handle_server_command(cmd, server_ip):
             console_allocated = True
         except Exception as e:
             log_message(f"Ошибка SHOW: {e}")
-    elif cmd == "HIDE" and console_allocated:
+    elif cmd == "HIDE" and is_windows and console_allocated:
         try:
             ctypes.windll.kernel32.FreeConsole()
             console_allocated = False
@@ -312,7 +318,7 @@ def handle_server_command(cmd, server_ip):
             log_message(f"Ошибка HIDE: {e}")
     elif cmd == "START_SHELL":
         threading.Thread(target=remote_shell_client, args=(server_ip,), daemon=True).start()
-    elif cmd == "START_RDP":
+    elif cmd == "START_RDP" and is_windows:
         threading.Thread(target=remote_desktop_client, args=(server_ip,), daemon=True).start()
     elif cmd == "CLEAR_TEMP":
         threading.Thread(target=clear_temp_files, daemon=True).start()
@@ -337,6 +343,35 @@ def handle_server_command(cmd, server_ip):
             except:
                 pass
             overlay_root_ref = None
+    elif cmd == "OPEN_SSH":
+        log_message("Получена команда OPEN_SSH от сервера. Настраиваем SSH.")
+        threading.Thread(target=open_ssh, daemon=True).start()
+    elif cmd.startswith("CONFIGURE_SSH:"):
+        try:
+            request = json.loads(cmd[len("CONFIGURE_SSH:"):])
+            if not request.get("request_id") or not request.get("username") or not request.get("public_key"):
+                raise ValueError("неполная команда настройки SSH")
+            threading.Thread(target=configure_ssh, args=(request,), daemon=True).start()
+        except (json.JSONDecodeError, ValueError) as e:
+            log_message(f"Некорректная команда настройки SSH: {e}")
+
+
+def configure_ssh(request):
+    global ssh_setup_result
+    result = {
+        "request_id": request["request_id"],
+        "success": False,
+        "error": "",
+    }
+    try:
+        Metrics.configure_ssh(request["username"], request["public_key"])
+        result["success"] = True
+        log_message(f"SSH настроен для пользователя {request['username']}")
+    except Exception as e:
+        result["error"] = str(e)
+        log_message(f"Не удалось настроить SSH: {e}")
+    with ssh_setup_result_lock:
+        ssh_setup_result = result
 
 
 def setup_agent_firewall():
@@ -396,10 +431,15 @@ def get_top_processes():
 
 
 def send_data():
+    global ssh_setup_result
     server_ip = None
     while True:
         try:
             data = collect_metrics()
+            with ssh_setup_result_lock:
+                setup_result = ssh_setup_result
+            if setup_result is not None:
+                data["ssh_setup_result"] = setup_result
             save_metric_to_db(data)
             if not server_ip:
                 server_ip = discover_server_ip()
@@ -411,7 +451,12 @@ def send_data():
                     s.sendall(payload)
                     server_response = s.recv(1024).decode('utf-8')
                     handle_server_command(server_response, server_ip)
-        except:
+                    if setup_result is not None:
+                        with ssh_setup_result_lock:
+                            if ssh_setup_result == setup_result:
+                                ssh_setup_result = None
+        except Exception as e:
+            log_message(f"Ошибка связи с сервером: {e}")
             server_ip = None
         time.sleep(8)
 
@@ -438,7 +483,21 @@ def hotkey_listener():
             h.join()
     except:
         pass
+    
 
+    
+
+def open_ssh():
+    try:
+        if platform.system() == "Windows":
+            enable_ssh_windows()
+        elif platform.system() == "Linux":
+            enable_ssh_linux()
+        else:
+            raise RuntimeError(f"SSH setup is not supported on {platform.system()}")
+        log_message("SSH запущен; входящий порт TCP 22 настроен")
+    except Exception as e:
+        log_message(f"Не удалось настроить SSH: {e}")
 
 if __name__ == "__main__":
     if is_already_running():

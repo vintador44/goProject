@@ -25,8 +25,8 @@ def get_network_metrics(log_message):
             ips = []
             mac = "Не определен"
             for address in interface_addresses.get(name, []):
-                if address.family == socket.AF_INET or address.family == socket.AF_INET6:
-                    ips.append(address.address.split("%", 1)[0])
+                if address.family == socket.AF_INET:
+                    ips.append(address.address)
                 elif mac_family is not None and address.family == mac_family:
                     if address.address and address.address != "00:00:00:00:00:00":
                         mac = address.address

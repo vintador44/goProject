@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { MenuItem, LeftSideBar } from "../modules/SideBar";
-
+import {MenuItems} from "../constants"
 import { sysmon } from "../wailsjs/go/models";
 import {
   GetCPUInfo,
@@ -72,20 +72,7 @@ function InformationPage() {
     }, 2000);
   }, []);
 
-  const MenuItems: MenuItem[] = [
-    {
-      label: "System Information",
-      path: "/",
-    },
-    {
-      label: "Database Profiles",
-      path: "/databaseProfiles",
-    },
-    {
-      label: "System Agent",
-      path: "/SysAgent",
-    },
-  ];
+  
 
   const totalDiskGB = diskInfo.reduce((total, disk) => total + disk.TotalGB, 0);
   const freeDiskGB = diskInfo.reduce((total, disk) => total + disk.FreeGB, 0);

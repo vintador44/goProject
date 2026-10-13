@@ -29,6 +29,22 @@ export namespace DataAdmin {
 
 export namespace sysagent {
 	
+	export class sshSetupResult {
+	    request_id: string;
+	    success: boolean;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new sshSetupResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.request_id = source["request_id"];
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
+	}
 	export class Metrics {
 	    hostname: string;
 	    cpu_percent: number;
@@ -42,6 +58,7 @@ export namespace sysagent {
 	    disks: any[];
 	    network: Record<string, any>;
 	    processes: any[];
+	    ssh_setup_result?: sshSetupResult;
 	
 	    static createFrom(source: any = {}) {
 	        return new Metrics(source);
@@ -61,7 +78,26 @@ export namespace sysagent {
 	        this.disks = source["disks"];
 	        this.network = source["network"];
 	        this.processes = source["processes"];
+	        this.ssh_setup_result = this.convertValues(source["ssh_setup_result"], sshSetupResult);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DeviceInfo {
 	    ip: string;
@@ -111,6 +147,23 @@ export namespace sysagent {
 	        this.ram = source["ram"];
 	        this.gpu = source["gpu"];
 	        this.time = source["time"];
+	    }
+	}
+	
+	export class SSHSessionUpdate {
+	    output: string;
+	    running: boolean;
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SSHSessionUpdate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.output = source["output"];
+	        this.running = source["running"];
+	        this.error = source["error"];
 	    }
 	}
 

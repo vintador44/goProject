@@ -2,6 +2,7 @@ import { MenuItem, LeftSideBar } from "../modules/SideBar";
 import * as DataAdminAPI from "../wailsjs/go/DataAdmin/DataAdmin";
 import { DataAdmin } from "../wailsjs/go/models";
 import { useForm, SubmitHandler } from "react-hook-form";
+import {MenuItems} from "../constants"
 import { useEffect, useState } from "react";
 import "react-datasheet-grid/dist/style.css";
 
@@ -21,14 +22,7 @@ export default function DatabaseWork() {
     const [sqlTableResultData,setSqlTableResultData] = useState<any[] >([]);
     const [sqlTableColumns,setSqlTableColumns] = useState<any[]>([]);
 
-    const MenuItems: MenuItem[] = [
-        { label: "System Information", path: "/" },
-        { label: "Database Profiles", path: "/databaseProfiles" },
-        {
-            label: "System Agent",
-            path: "/SysAgent"
-        }
-    ];
+    
     const { index } = useParams<{ index: string }>();
 
     const Fconnect = async() => {
