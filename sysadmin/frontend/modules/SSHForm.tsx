@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 type SSHFormProps = {
-  onSubmit: (data: { username: string;hostusername: string; ip: string }) => void;
+  onSubmit: (data: { username: string; ip: string }) => void;
   onClose?: () => void;
 };
 
@@ -22,11 +22,11 @@ export const SSHForm = ({ onSubmit, onClose }: SSHFormProps) => {
   
   const [username, setUsername] = useState("");
   const [ip, setIp] = useState("");
-  const [hostusername,setHostusername] = useState("");
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({ username,hostusername, ip });
+    onSubmit({ username, ip });
   };
 
   return (
@@ -48,18 +48,7 @@ export const SSHForm = ({ onSubmit, onClose }: SSHFormProps) => {
               onChange={(e) => setUsername(e.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="ssh-host" className="text-base">
-              Host
-            </Label>
-            <Input
-              id="ssh-user"
-              className="h-11 text-base"
-              placeholder="user"
-              value={hostusername}
-              onChange={(e) => setHostusername(e.target.value)}
-            />
-          </div>
+          
           <div className="space-y-2 pb-2">
             <Label htmlFor="ssh-ip" className="text-base">
               IP
@@ -87,9 +76,9 @@ export const SSHForm = ({ onSubmit, onClose }: SSHFormProps) => {
             className="rounded-full px-6 text-base"
             type="submit"
             size="lg"
-            disabled={!username || !ip || !hostusername}
+            disabled={!username || !ip }
             onClick={() => {
-              localStorage.setItem("ssh-profile", JSON.stringify({ username,hostusername, ip }));
+              localStorage.setItem("ssh-profile", JSON.stringify({ username, ip }));
             }}
           >
             Подключить

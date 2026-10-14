@@ -317,10 +317,6 @@ func (s *SysAgent) StartSSHSessionByIP(ip string, sshUsername string) (string, e
 	if ip == "" {
 		return "", fmt.Errorf("IP address cannot be empty")
 	}
-	privateKeyPath, _, err := s.ensureSSHKey()
-	if err != nil {
-		return "", err
-	}
 	address := net.JoinHostPort(ip, sshPort)
 	if err := waitForTCPPort(address, 15*time.Second); err != nil {
 		return "", fmt.Errorf("TCP/22 на устройстве %q недоступен: %w", ip, err)
@@ -330,7 +326,7 @@ func (s *SysAgent) StartSSHSessionByIP(ip string, sshUsername string) (string, e
 		host = "[" + host + "]"
 	}
 	target := sshUsername + "@" + host
-	return s.startSSHProcess(target, privateKeyPath)
+	return s.startSSHProcess(target, "") // пустой путь: ssh сам берёт ключи из ~/.ssh
 }
 
 func (s *SysAgent) ensureSSHKey() (string, string, error) {
@@ -492,17 +488,19 @@ func waitForTCPPort(address string, timeout time.Duration) error {
 }
 
 func (s *SysAgent) startSSHProcess(target, privateKeyPath string) (string, error) {
-	cmd := exec.Command(
-		"ssh",
+	args := []string{
 		"-tt",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
 		"-o", "ServerAliveInterval=30",
-		"-o", "IdentitiesOnly=yes",
 		"-o", "StrictHostKeyChecking=accept-new",
-		"-i", privateKeyPath,
-		target,
-	)
+	}
+	if privateKeyPath != "" {
+		args = append(args, "-o", "IdentitiesOnly=yes", "-i", privateKeyPath)
+	}
+	args = append(args, target)
+	cmd := exec.Command("ssh", args...)
+
 	session := &sshTerminalSession{cmd: cmd, done: make(chan struct{})}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

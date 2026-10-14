@@ -6,7 +6,7 @@ import { useState} from "react";
 import { SSHForm } from "../modules/SSHForm";
 import { useLocalStorage } from "@uidotdev/usehooks";
 
-type Profile = { hostusername: string;username:string ; ip: string };
+type Profile = { username:string ; ip: string };
 
 function SSHProfiles() {
   const [open, setOpen] = useState(false);
@@ -24,7 +24,7 @@ function SSHProfiles() {
           SSH Profiles
         </h1>
         {profiles.map((p) => (
-          <SSHProfile key={`${p.hostusername}@${p.ip}`} hostusername={p.hostusername} username={p.username} ip={p.ip} />
+          <SSHProfile key={`${p.username}@${p.ip}`} username={p.username} ip={p.ip} />
         ))}
       </main>
       {open && (

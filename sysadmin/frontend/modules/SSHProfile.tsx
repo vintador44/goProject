@@ -2,12 +2,12 @@ import SSHTerminal from "./SSHTerminal";
 import { useState } from "react";
 
 export type SSHProfilesProps = {
-  hostusername: string,
+  
   username:string,
   ip: string
 }
 
-export const SSHProfile = ({hostusername,username,ip} : SSHProfilesProps) => {
+export const SSHProfile = ({username,ip} : SSHProfilesProps) => {
     const [sshTerminalOpen,setSshTerminalOpen] = useState<boolean>()
 
   return (
@@ -16,7 +16,7 @@ export const SSHProfile = ({hostusername,username,ip} : SSHProfilesProps) => {
         <div className="truncate font-medium text-slate-100">
           Ip: {ip}
         </div>
-        <div className="truncate">Host: {hostusername}</div>
+        
         <div className="truncate">User: {username}</div>
         
       </div>
