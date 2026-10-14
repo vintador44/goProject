@@ -1,13 +1,33 @@
 import { MenuItem, LeftSideBar } from "../modules/SideBar";
 import * as SysAgentAPI from "../wailsjs/go/sysagent/SysAgent";
 import { sysagent } from "../wailsjs/go/models";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import {MenuItems} from "../constants"
 import SSHTerminal from "../modules/SSHTerminal";
 import {
   InformationContainerProps,
   InformationContainer,
 } from "../modules/InformationContainer";
+
+const RDP_KEY_ALIASES: Record<string, string> = {
+  Enter: "enter", NumpadEnter: "enter", Escape: "esc", Backspace: "backspace",
+  Tab: "tab", Space: "space", ShiftLeft: "shift", ShiftRight: "rightshift",
+  ControlLeft: "ctrl", ControlRight: "rightctrl", AltLeft: "alt", AltRight: "rightalt",
+  MetaLeft: "super", MetaRight: "rightsuper", ArrowUp: "up", ArrowDown: "down",
+  ArrowLeft: "left", ArrowRight: "right", Home: "home", End: "end",
+  PageUp: "pageup", PageDown: "pagedown", Insert: "insert", Delete: "delete",
+  CapsLock: "capslock", Minus: "minus", Equal: "equal", BracketLeft: "leftbracket",
+  BracketRight: "rightbracket", Backslash: "backslash", Semicolon: "semicolon",
+  Quote: "apostrophe", Backquote: "grave", Comma: "comma", Period: "period", Slash: "slash",
+};
+
+function rdpKeyAlias(code: string): string | undefined {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6);
+  if (/^F([1-9]|1[0-2])$/.test(code)) return code.toLowerCase();
+  return RDP_KEY_ALIASES[code];
+}
 
 export default function SysAgent() {
   
@@ -18,6 +38,14 @@ export default function SysAgent() {
   const activeData = activeName ? devices[activeName] : undefined;
   const [cmdQuery, setCmdQuery] = useState<string>("");
   const [sshTerminalOpen, setSshTerminalOpen] = useState(false);
+  const [rdpOpen, setRdpOpen] = useState(false);
+  const [rdpStartFailed, setRdpStartFailed] = useState(false);
+  const [rdpFrame, setRdpFrame] = useState("");
+  const [rdpError, setRdpError] = useState("");
+  const rdpLastError = useRef("");
+  const rdpHasFrame = useRef(false);
+  const rdpSurfaceRef = useRef<HTMLElement | null>(null);
+  const rdpHeldKeys = useRef(new Set<string>());
 
   const DeviceProps: InformationContainerProps = {
     title: "Device",
@@ -100,6 +128,57 @@ export default function SysAgent() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!rdpOpen || !activeName || rdpStartFailed) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const frame = await SysAgentAPI.ReadRDPFrame(activeName);
+        if (!stopped && frame) {
+          setRdpFrame(`data:image/jpeg;base64,${frame}`);
+          setRdpError("");
+          rdpLastError.current = "";
+          if (!rdpHasFrame.current) {
+            rdpHasFrame.current = true;
+            console.info(`[RDP] First frame received for ${activeName} (${frame.length} base64 chars)`);
+          }
+        }
+      } catch (error: any) {
+        if (!stopped) {
+          const message = String(error?.message || error);
+          if (rdpLastError.current !== message) {
+            console.error(`[RDP] ${activeName}: ${message.slice(0, 500)}${message.length > 500 ? `… (${message.length} chars)` : ""}`);
+          }
+          rdpLastError.current = message;
+          setRdpError(message.slice(0, 300));
+        }
+      }
+      if (!stopped) timer = setTimeout(poll, 150);
+    };
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [rdpOpen, activeName, rdpStartFailed]);
+
+  useEffect(() => {
+    if (!rdpOpen) return;
+    const frame = requestAnimationFrame(() => rdpSurfaceRef.current?.focus());
+    const releaseKeys = () => {
+      if (activeName) {
+        for (const key of rdpHeldKeys.current) {
+          void SysAgentAPI.SendRDPKeyboardInput(activeName, "key_up", key);
+        }
+      }
+      rdpHeldKeys.current.clear();
+    };
+    window.addEventListener("blur", releaseKeys);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("blur", releaseKeys);
+      releaseKeys();
+    };
+  }, [rdpOpen, activeName]);
+
   function DeviceControl(name: string) {
     setActiveName(name);
   }
@@ -111,6 +190,50 @@ export default function SysAgent() {
       return;
     }
     setSshTerminalOpen(true);
+  };
+  const handleOpenRDP = async () => {
+    if (!activeName) return;
+    rdpLastError.current = ""; rdpHasFrame.current = false;
+    setRdpStartFailed(false);
+    setRdpFrame(""); setRdpError(""); setRdpOpen(true);
+    try { await SysAgentAPI.StartRDPSessionByHostname(activeName); }
+    catch (error: any) {
+      const message = String(error?.message || error);
+      console.error(`[RDP] Start failed for ${activeName}: ${message.slice(0, 500)}${message.length > 500 ? `… (${message.length} chars)` : ""}`);
+      setRdpStartFailed(true);
+      setRdpError(message.slice(0, 300));
+    }
+  };
+  const handleRDPClick = async (event: MouseEvent<HTMLImageElement>) => {
+    rdpSurfaceRef.current?.focus();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width;
+    const y = (event.clientY - rect.top) / rect.height;
+    try { await SysAgentAPI.SendRDPInput(activeName!, event.button === 2 ? "RCLICK" : "CLICK", x, y); }
+    catch (error: any) { setRdpError(String(error?.message || error)); }
+  };
+  const handleRDPKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const key = rdpKeyAlias(event.code);
+    if (!key) return;
+    event.preventDefault();
+    if (rdpHeldKeys.current.has(key)) return;
+    rdpHeldKeys.current.add(key);
+    if (activeName) void SysAgentAPI.SendRDPKeyboardInput(activeName, "key_down", key);
+  };
+  const handleRDPKeyUp = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const key = rdpKeyAlias(event.code);
+    if (!key) return;
+    event.preventDefault();
+    rdpHeldKeys.current.delete(key);
+    if (activeName) void SysAgentAPI.SendRDPKeyboardInput(activeName, "key_up", key);
+  };
+  const closeRDP = () => {
+    for (const key of rdpHeldKeys.current) {
+      if (activeName) void SysAgentAPI.SendRDPKeyboardInput(activeName, "key_up", key);
+    }
+    rdpHeldKeys.current.clear();
+    if (activeName) void SysAgentAPI.CloseRDPSession(activeName);
+    setRdpOpen(false); setRdpStartFailed(false); setRdpFrame("");
   };
 
   const handleCmdExecute = async () => {
@@ -152,6 +275,13 @@ export default function SysAgent() {
           System Agent
         </h1>
         <div className="flex w-full flex-wrap items-center gap-2 border-y border-slate-500 p-3">
+          <button
+            className="shrink-0 rounded border border-emerald-700 bg-emerald-950 px-3 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={handleOpenRDP}
+            disabled={!activeName || rdpOpen}
+          >
+            Подключиться к экрану
+          </button>
           <button
             className="shrink-0 rounded border border-cyan-700 bg-cyan-950 px-3 py-2 text-sm font-medium text-cyan-100 transition-colors hover:bg-cyan-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
             onClick={handleOpenSSH}
@@ -240,6 +370,41 @@ export default function SysAgent() {
           username="sysadmin"
           onClose={() => setSshTerminalOpen(false)}
         />
+      )}
+      {rdpOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onContextMenu={(event) => event.preventDefault()}>
+          <section
+            ref={rdpSurfaceRef}
+            tabIndex={0}
+            onKeyDown={handleRDPKeyDown}
+            onKeyUp={handleRDPKeyUp}
+            className="flex max-h-full w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+          >
+            <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+              <h2 className="font-semibold text-slate-100">Удалённый экран · {activeName}</h2>
+              <button className="rounded border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800" onClick={closeRDP}>Отключиться</button>
+            </header>
+            <div className="flex min-h-64 items-center justify-center overflow-auto p-3">
+              {rdpFrame ? (
+                <img
+                  src={rdpFrame}
+                  alt="Экран удалённого компьютера"
+                  className="max-h-[75vh] max-w-full cursor-crosshair object-contain"
+                  onClick={handleRDPClick}
+                  onAuxClick={handleRDPClick}
+                  onError={() => {
+                    console.error(`[RDP] Browser could not decode frame for ${activeName}`);
+                    setRdpError("Получен кадр, но браузер не смог его декодировать.");
+                  }}
+                  draggable={false}
+                />
+              ) : (
+                <p className="text-sm text-slate-400">{rdpError || "Ожидание кадра от агента…"}</p>
+              )}
+            </div>
+            {rdpError && rdpFrame && <p className="px-4 pb-3 text-sm text-rose-300">{rdpError}</p>}
+          </section>
+        </div>
       )}
     </div>
   );

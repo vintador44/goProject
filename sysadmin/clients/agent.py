@@ -9,8 +9,13 @@ import sys
 import os
 import shutil
 import threading
-from pynput import keyboard
-from pynput.mouse import Button, Controller as MouseController
+try:
+    from pynput import keyboard
+    from pynput.mouse import Button, Controller as MouseController
+except Exception:
+    keyboard = None
+    Button = None
+    MouseController = None
 import tkinter as tk
 from tkinter import simpledialog
 
@@ -40,6 +45,42 @@ def log_message(message):
             f.write(f"[{time.strftime('%H:%M:%S')}] {message}\n")
     except:
         pass
+
+
+def _apply_remote_key_event(event, controller):
+    if keyboard is None:
+        raise RuntimeError("pynput.keyboard недоступен")
+    key_name = str(event.get("key", "")).lower()
+    key_aliases = {
+        "esc": "esc", "ctrl": "ctrl", "rightctrl": "ctrl_r",
+        "shift": "shift", "rightshift": "shift_r",
+        "alt": "alt", "rightalt": "alt_r",
+        "super": "cmd", "rightsuper": "cmd_r",
+        "pageup": "page_up", "pagedown": "page_down",
+        "capslock": "caps_lock",
+    }
+    key_attr = key_aliases.get(key_name, key_name)
+    key = getattr(keyboard.Key, key_attr, None)
+    if key is None:
+        printable_aliases = {
+            "minus": "-", "equal": "=", "leftbracket": "[", "rightbracket": "]",
+            "backslash": "\\", "semicolon": ";", "apostrophe": "'", "grave": "`",
+            "comma": ",", "period": ".", "slash": "/",
+        }
+        if key_name in printable_aliases:
+            key = keyboard.KeyCode.from_char(printable_aliases[key_name])
+        elif key_name.startswith("f") and key_name[1:].isdigit():
+            key = getattr(keyboard.Key, key_name, None)
+        elif len(key_name) == 1:
+            key = keyboard.KeyCode.from_char(key_name)
+    if key is None:
+        raise ValueError(f"неизвестная клавиша {key_name!r}")
+    if event.get("type") == "key_down":
+        controller.press(key)
+    elif event.get("type") == "key_up":
+        controller.release(key)
+    else:
+        raise ValueError("неизвестное клавиатурное событие")
 
 
 def is_already_running():
@@ -98,23 +139,36 @@ def show_user_notification(text, stop_event=None):
         log_message(f"Ошибка UI уведомления: {e}")
 
 
-def remote_desktop_client(server_ip):
+def _remote_desktop_client_windows(server_ip):
     import io
+
     try:
         from PIL import ImageGrab
     except ImportError:
         log_message("Ошибка RDP: Pillow не установлена.")
         return
+
+    if MouseController is None or Button is None:
+        log_message("Ошибка RDP: pynput недоступен.")
+        return
+
     mouse = MouseController()
+    keyboard_controller = keyboard.Controller() if keyboard is not None else None
+
     try:
         ctypes.windll.user32.SetProcessDPIAware()
-    except:
+    except Exception:
         pass
 
     rdp_active_event = threading.Event()
-    threading.Thread(target=show_user_notification,
-                     args=("⚠️ ДИСТАНЦИОННОЕ УПРАВЛЕНИЕ: Администратор видит ваш экран", rdp_active_event),
-                     daemon=True).start()
+    threading.Thread(
+        target=show_user_notification,
+        args=(
+            "⚠️ ДИСТАНЦИОННОЕ УПРАВЛЕНИЕ: Администратор видит ваш экран",
+            rdp_active_event,
+        ),
+        daemon=True,
+    ).start()
 
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -130,21 +184,31 @@ def remote_desktop_client(server_ip):
                         buffer += data
                         while b"\n" in buffer:
                             line_bytes, buffer = buffer.split(b"\n", 1)
-                            line = line_bytes.decode('utf-8', errors='ignore').strip()
+                            line = line_bytes.decode("utf-8", errors="ignore").strip()
+
+                            if line.startswith("{"):
+                                event = json.loads(line)
+                                if event.get("type") in ("key_down", "key_up") and keyboard_controller:
+                                    _apply_remote_key_event(event, keyboard_controller)
+                                continue
+
                             if ":" in line:
                                 btn_type, coords = line.split(":", 1)
                                 pct_x, pct_y = map(float, coords.split(","))
                                 screen_w = ctypes.windll.user32.GetSystemMetrics(0)
                                 screen_h = ctypes.windll.user32.GetSystemMetrics(1)
-                                target_x = int(pct_x * screen_w)
-                                target_y = int(pct_y * screen_h)
-                                mouse.position = (target_x, target_y)
+                                mouse.position = (
+                                    int(pct_x * screen_w),
+                                    int(pct_y * screen_h),
+                                )
+
                                 if btn_type == "CLICK":
                                     mouse.click(Button.left, 1)
                                 elif btn_type == "RCLICK":
                                     mouse.click(Button.right, 1)
                     elif data == b"":
                         break
+
                 except BlockingIOError:
                     pass
                 except Exception as e:
@@ -156,21 +220,53 @@ def remote_desktop_client(server_ip):
                     try:
                         screenshot = ImageGrab.grab()
                         img_byte_arr = io.BytesIO()
-                        screenshot.save(img_byte_arr, format='JPEG', quality=50)
+                        screenshot.save(img_byte_arr, format="JPEG", quality=50)
                         img_bytes = img_byte_arr.getvalue()
-                        size_prefix = len(img_bytes).to_bytes(4, byteorder='big')
 
                         s.setblocking(True)
-                        s.sendall(size_prefix + img_bytes)
+                        s.sendall(len(img_bytes).to_bytes(4, "big") + img_bytes)
                         s.setblocking(False)
                         last_shot_time = now
                     except Exception as e:
                         log_message(f"RDP Send Error: {e}")
                         break
+
                 time.sleep(0.03)
+
+    except Exception as e:
+        log_message(f"Ошибка Windows RDP: {e}")
     finally:
         rdp_active_event.set()
         log_message("Сессия удаленного рабочего стола завершена")
+
+
+def check_wayland_dependencies():
+    errors = []
+
+    if not os.environ.get("WAYLAND_DISPLAY"):
+        errors.append("Не задан WAYLAND_DISPLAY")
+
+    Gst = None
+    try:
+        import gi
+        gi.require_version("Gst", "1.0")
+
+        if not hasattr(gi, "repository"):
+            raise ImportError("PyGObject is not installed")
+
+        Gst = gi.repository.Gst  # type: ignore[attr-defined]
+        Gst.init(None)
+
+        if Gst.ElementFactory.find("pipewiresrc") is None:
+            errors.append("GStreamer: отсутствует плагин pipewiresrc")
+
+        if Gst.ElementFactory.find("appsink") is None:
+            errors.append("GStreamer: отсутствует элемент appsink")
+
+    except Exception as e:
+        errors.append(f"Ошибка Python/GStreamer: {e}")
+
+    return errors
 
 
 def remote_shell_client(server_ip):
@@ -212,6 +308,121 @@ def remote_shell_client(server_ip):
     except Exception as e:
         log_message(f"Удаленный сеанс терминала завершен: {e}")
 
+def remote_desktop_client(server_ip):
+    system = platform.system()
+
+    if system == "Windows":
+        _remote_desktop_client_windows(server_ip)
+        return
+
+    if system == "Linux":
+        if os.environ.get("XDG_SESSION_TYPE", "").lower() != "wayland":
+            if os.environ.get("DISPLAY"):
+                _remote_desktop_client_x11(server_ip)
+            else:
+                log_message("RDP: Linux GUI session not found (DISPLAY/WAYLAND_DISPLAY is missing).")
+            return
+
+        errors = check_wayland_dependencies()
+        if errors:
+            log_message("Wayland RDP: " + "; ".join(errors))
+            return
+
+        try:
+            from Metrics import RDPWayland
+
+            RDPWayland.run_remote_desktop(
+                server_ip=server_ip,
+                port=RDP_PORT,
+                log=log_message,
+                notify=show_user_notification,
+            )
+        except Exception as e:
+            log_message(f"Ошибка запуска Wayland RDP: {e}")
+        return
+
+    log_message(f"RDP не поддерживается на {system}")
+
+
+def _remote_desktop_client_x11(server_ip):
+    """Capture an X11 desktop and forward normalized mouse clicks."""
+    import io
+
+    try:
+        from PIL import ImageGrab
+    except ImportError:
+        log_message("Ошибка RDP X11: Pillow не установлена.")
+        return
+    if MouseController is None or Button is None:
+        log_message("Ошибка RDP X11: pynput недоступен.")
+        return
+
+    mouse = MouseController()
+    active_event = threading.Event()
+    threading.Thread(
+        target=show_user_notification,
+        args=("⚠️ ДИСТАНЦИОННОЕ УПРАВЛЕНИЕ: Администратор видит ваш экран", active_event),
+        daemon=True,
+    ).start()
+
+    try:
+        with socket.create_connection((server_ip, RDP_PORT), timeout=10) as sock:
+            sock.setblocking(False)
+            command_buffer = b""
+            last_frame = 0.0
+            keyboard_controller = keyboard.Controller() if keyboard is not None else None
+            while True:
+                try:
+                    data = sock.recv(4096)
+                    if not data:
+                        break
+                    command_buffer += data
+                    while b"\n" in command_buffer:
+                        raw, command_buffer = command_buffer.split(b"\n", 1)
+                        try:
+                            line = raw.decode("utf-8").strip()
+                            if line.startswith("{"):
+                                event = json.loads(line)
+                                if event.get("type") in ("key_down", "key_up") and keyboard_controller:
+                                    _apply_remote_key_event(event, keyboard_controller)
+                                continue
+                            button, coords = line.split(":", 1)
+                            pct_x, pct_y = map(float, coords.split(",", 1))
+                            screen = ImageGrab.grab()
+                            width, height = screen.size
+                            mouse.position = (int(pct_x * width), int(pct_y * height))
+                            if button == "CLICK":
+                                mouse.click(Button.left, 1)
+                            elif button == "RCLICK":
+                                mouse.click(Button.right, 1)
+                        except (ValueError, UnicodeDecodeError):
+                            log_message("RDP X11: некорректная команда мыши.")
+                except BlockingIOError:
+                    pass
+                except OSError as exc:
+                    log_message(f"RDP X11 Recv Error: {exc}")
+                    break
+
+                now = time.monotonic()
+                if now - last_frame >= 0.10:
+                    try:
+                        screenshot = ImageGrab.grab()
+                        image_buffer = io.BytesIO()
+                        screenshot.save(image_buffer, format="JPEG", quality=50)
+                        frame = image_buffer.getvalue()
+                        sock.setblocking(True)
+                        sock.sendall(len(frame).to_bytes(4, "big") + frame)
+                        sock.setblocking(False)
+                        last_frame = now
+                    except Exception as exc:
+                        log_message(f"RDP X11 Send Error: {exc}")
+                        break
+                time.sleep(0.03)
+    except Exception as exc:
+        log_message(f"Ошибка запуска RDP X11: {exc}")
+    finally:
+        active_event.set()
+        log_message("Сессия удаленного рабочего стола X11 завершена")
 
 def clear_temp_files():
     temp_paths = [
@@ -318,8 +529,12 @@ def handle_server_command(cmd, server_ip):
             log_message(f"Ошибка HIDE: {e}")
     elif cmd == "START_SHELL":
         threading.Thread(target=remote_shell_client, args=(server_ip,), daemon=True).start()
-    elif cmd == "START_RDP" and is_windows:
-        threading.Thread(target=remote_desktop_client, args=(server_ip,), daemon=True).start()
+    elif cmd == "START_RDP" and platform.system() in ("Windows", "Linux"):
+        threading.Thread(
+        target=remote_desktop_client,
+        args=(server_ip,),
+        daemon=True,
+    ).start()
     elif cmd == "CLEAR_TEMP":
         threading.Thread(target=clear_temp_files, daemon=True).start()
     elif cmd.startswith("KILL_PID:"):
