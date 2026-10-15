@@ -7,5 +7,9 @@ export const MenuItems: MenuItem[] = [
     label: "System Agent",
     path: "/SysAgent",
   },
+  {
+    label: "Remote SysAgent",
+    path: "/RemoteSysAgent",
+  },
   { label: "SSH Profile", path: "/SSHProfiles"}
 ];

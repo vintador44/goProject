@@ -3,12 +3,15 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { SSHSessionController } from "./SSHSessionController";
-import type { SSHSessionStatus } from "./SSHSessionController";
+import type { SSHSessionAPI, SSHSessionStatus } from "./SSHSessionController";
+import * as SysAgentAPI from "../wailsjs/go/sysagent/SysAgent";
 
 type SSHTerminalProps = {
   hostname: string;
   username: string;
   onClose: () => void;
+  api?: SSHSessionAPI;
+  connectByIP?: boolean;
 };
 
 const statusLabels: Record<SSHSessionStatus, string> = {
@@ -22,6 +25,8 @@ export default function SSHTerminal({
   hostname,
   username,
   onClose,
+  api = SysAgentAPI,
+  connectByIP = false,
 }: SSHTerminalProps) {
   const terminalElementRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<SSHSessionStatus>("preparing");
@@ -58,6 +63,8 @@ export default function SSHTerminal({
         setStatus(nextStatus);
         setStatusDetail(detail);
       },
+      api,
+      connectByIP,
     );
     const inputSubscription = terminal.onData((data) => {
       void controller.write(data);
@@ -75,7 +82,7 @@ export default function SSHTerminal({
       });
       terminal.dispose();
     };
-  }, [hostname]);
+  }, [hostname, username, api, connectByIP]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">

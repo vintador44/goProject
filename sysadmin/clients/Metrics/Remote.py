@@ -59,6 +59,10 @@ def setup_agent_firewall(udp_port, log_message):
         log_message(f"Ошибка файрвола: {e}")
 
 def discover_server_ip(udp_port):
+    configured_server = os.environ.get("SYSADMIN_SERVER_IP", "").strip()
+    if configured_server:
+        return configured_server
+
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.settimeout(1.5)

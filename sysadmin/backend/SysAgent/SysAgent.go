@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,6 +42,7 @@ const (
 // Metrics — то, что присылает агент
 type Metrics struct {
 	Hostname       string                   `json:"hostname"`
+	AgentToken     string                   `json:"agent_token,omitempty"`
 	CPUPercent     float64                  `json:"cpu_percent"`
 	RAMPercent     float64                  `json:"ram_percent"`
 	GPUPercent     float64                  `json:"gpu_percent"`
@@ -73,7 +76,8 @@ type DeviceInfo struct {
 }
 
 type shellHandshake struct {
-	Hostname string `json:"hostname"`
+	Hostname   string `json:"hostname"`
+	AgentToken string `json:"agent_token,omitempty"`
 }
 
 type shellRequest struct {
@@ -164,7 +168,7 @@ func (s *SysAgent) StartRDPSessionByHostname(hostname string) error {
 }
 
 func (s *SysAgent) runRDPServer() {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", RDPPort))
+	ln, err := listenAgentTCP(fmt.Sprintf(":%d", RDPPort))
 	if err != nil {
 		log.Printf("RDP listen error: %v", err)
 		return
@@ -403,17 +407,19 @@ type History struct {
 
 // SysAgent — ядро сервера
 type SysAgent struct {
-	mu          sync.RWMutex
-	devices     map[string]DeviceInfo
-	history     map[string]*History
-	commands    map[string]string // команды, ожидающие отправки агенту
-	stopChan    chan struct{}
-	tcpLn       net.Listener
-	udpConn     *net.UDPConn
-	rdpLn       net.Listener
-	rdpMu       sync.RWMutex
-	rdpPending  map[string]string
-	rdpSessions map[string]*rdpSession
+	mu            sync.RWMutex
+	devices       map[string]DeviceInfo
+	history       map[string]*History
+	commands      map[string]string // команды, ожидающие отправки агенту
+	stopChan      chan struct{}
+	tcpLn         net.Listener
+	udpConn       *net.UDPConn
+	rdpLn         net.Listener
+	rdpMu         sync.RWMutex
+	rdpPending    map[string]string
+	rdpSessions   map[string]*rdpSession
+	controlMu     sync.Mutex
+	controlServer *http.Server
 
 	shellMu         sync.RWMutex
 	shellLn         net.Listener
@@ -451,6 +457,7 @@ func (s *SysAgent) Start() {
 		go s.runUDPServer()
 		go s.runShellServer()
 		go s.runRDPServer()
+		go s.runRelayControlServer()
 		log.Println("SysAgent: TCP, UDP и remote shell серверы запущены")
 	})
 }
@@ -468,6 +475,11 @@ func (s *SysAgent) Stop() {
 		if s.rdpLn != nil {
 			s.rdpLn.Close()
 		}
+		s.controlMu.Lock()
+		if s.controlServer != nil {
+			_ = s.controlServer.Close()
+		}
+		s.controlMu.Unlock()
 		s.rdpMu.Lock()
 		for hostname, session := range s.rdpSessions {
 			session.conn.Close()
@@ -501,7 +513,7 @@ func (s *SysAgent) Stop() {
 // ========== TCP СЕРВЕР (приём метрик) ==========
 
 func (s *SysAgent) runTCPServer() {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", TCPPort))
+	ln, err := listenAgentTCP(fmt.Sprintf(":%d", TCPPort))
 	if err != nil {
 		log.Printf("TCP listen error: %v", err)
 		return
@@ -881,7 +893,7 @@ func (s *SysAgent) waitForShellSession(hostname string, timeout time.Duration) (
 }
 
 func (s *SysAgent) runShellServer() {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", ShellPort))
+	ln, err := listenAgentTCP(fmt.Sprintf(":%d", ShellPort))
 	if err != nil {
 		log.Printf("Remote shell listen error: %v", err)
 		return
@@ -921,6 +933,11 @@ func (s *SysAgent) handleShellConn(conn net.Conn) {
 	var handshake shellHandshake
 	if err := decoder.Decode(&handshake); err != nil || handshake.Hostname == "" {
 		log.Printf("Invalid remote shell handshake from %s: %v", conn.RemoteAddr(), err)
+		conn.Close()
+		return
+	}
+	if !s.validAgentToken(handshake.AgentToken) {
+		log.Printf("Remote shell rejected: invalid agent token from %s", conn.RemoteAddr())
 		conn.Close()
 		return
 	}
@@ -992,6 +1009,11 @@ func (s *SysAgent) handleTCPConn(conn net.Conn) {
 		log.Printf("JSON decode error from %s: %v", conn.RemoteAddr(), err)
 		return
 	}
+	if !s.validAgentToken(metrics.AgentToken) {
+		log.Printf("Agent metrics rejected: invalid agent token from %s", conn.RemoteAddr())
+		return
+	}
+	metrics.AgentToken = ""
 	setupResult := metrics.SSHSetupResult
 	hostname := metrics.Hostname
 	if hostname == "" {
@@ -1054,6 +1076,14 @@ func (s *SysAgent) handleTCPConn(conn net.Conn) {
 		}
 		s.mu.Unlock()
 	}
+}
+
+func (s *SysAgent) validAgentToken(provided string) bool {
+	expected := os.Getenv("SYSADMIN_AGENT_TOKEN")
+	if expected == "" {
+		return true
+	}
+	return len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
 // ========== UDP СЕРВЕР (обнаружение) ==========

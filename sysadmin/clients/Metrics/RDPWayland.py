@@ -2,6 +2,7 @@
 import json
 import os
 import socket
+import ssl
 import struct
 import threading
 import time
@@ -408,6 +409,10 @@ def run_remote_desktop(server_ip, port, log, notify=None):
             raise RuntimeError("Не удалось запустить PipeWire pipeline")
 
         sock = socket.create_connection((server_ip, port), timeout=10)
+        if os.environ.get("SYSADMIN_USE_TLS", "").lower() in ("1", "true", "yes"):
+            context = ssl.create_default_context()
+            server_name = os.environ.get("SYSADMIN_SERVER_NAME", server_ip)
+            sock = context.wrap_socket(sock, server_hostname=server_name)
         sock.settimeout(1.0)
 
         threading.Thread(

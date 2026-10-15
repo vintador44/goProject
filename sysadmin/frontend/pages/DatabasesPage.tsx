@@ -1,61 +1,58 @@
 
-import { MenuItem, LeftSideBar } from "../modules/SideBar";
-import {MenuItems} from "../constants"
-import * as DataAdminAPI from "../wailsjs/go/DataAdmin/DataAdmin";
-import { DataAdmin} from "../wailsjs/go/models";
-import { DatabaseProfile} from "../modules/DatabaseProfile"
-import { BrowserRouter as Router, Route, useNavigate, Routes,Link } from 'react-router-dom';
+import { LeftSideBar } from "../modules/SideBar";
+import { MenuItems } from "../constants";
+import { DataAdmin } from "../wailsjs/go/models";
+import { DatabaseProfile } from "../modules/DatabaseProfile";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
 function DatabasePage() {
-  const [results, setResults] = useState<Record<string, any>>({});
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [connId, setConnId] = useState<string | null>(null);
-  const [connections,setConnections] = useState<DataAdmin.ConnectionSettings[]>([new DataAdmin.ConnectionSettings]);
-  
+  const navigate = useNavigate();
+  const [connections, setConnections] = useState<DataAdmin.ConnectionSettings[]>([]);
 
-  
- useEffect(() => {
-  try {
-    const stored = localStorage.getItem('databases');
-    const list = stored ? JSON.parse(stored) : [];
-    const mapped = list.map((item: any) => new DataAdmin.ConnectionSettings(item));
-    setConnections(mapped);
-    console.log('Загружено записей:', mapped.length);
-  } catch (error) {
-    console.error('Ошибка при загрузке из localStorage:', error);
-    setConnections([]);
-  }
-}, []);
-  
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("databases");
+      const list = stored ? JSON.parse(stored) : [];
+      setConnections(list.map((item: unknown) => new DataAdmin.ConnectionSettings(item)));
+    } catch (error) {
+      console.error("Ошибка при загрузке профилей БД:", error);
+      setConnections([]);
+    }
+  }, []);
 
-  
-  
   const hasConnections = connections.length > 0;
 
   return (
-        <div className="flex min-h-screen w-full flex-col bg-background dark text-slate-200 md:flex-row">
-            <LeftSideBar menuItems={MenuItems} />
-          <main className="flex min-h-screen min-w-0 flex-1 flex-wrap content-start overflow-y-auto bg-background dark">
-         <h1 className="w-full px-4 py-3 text-3xl font-semibold text-slate-100 md:text-4xl">Databases Profiles</h1>
-         <div className="flex w-full items-center border-y border-slate-500 px-4 py-3">
-         <Link to={"/databaseCreate"} className="inline-flex items-center rounded border border-border bg-accent px-4 py-2 text-sm font-medium text-slate-100 no-underline transition-colors hover:bg-cyan-950 focus:outline-none focus:ring-2 focus:ring-cyan-400">Создать</Link>
-                 </div>
-         <div className="flex w-full flex-wrap p-2">
-                 {hasConnections ? (
-                    connections.map((item,index) => {
-                      return <DatabaseProfile {...item} index={index} key={index}/>
-                    })
-                 ) : (
-                    <div className="w-full rounded-md border border-dashed border-border bg-background p-6 text-slate-300">
-                      <p className="text-lg font-medium text-slate-100">Профили баз данных ещё не созданы.</p>
-                      <p className="mt-2 text-sm">Нажмите «Создать», чтобы добавить соединение.</p>
-                    </div>
-                 )}
-         </div>
-                 
-         </main>
-        </div>
-    
+    <div className="flex min-h-screen w-full bg-background text-foreground dark">
+      <LeftSideBar menuItems={MenuItems} />
+      <main className="flex min-h-screen min-w-0 flex-1 flex-col overflow-y-auto">
+        <header className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-5 py-5 md:px-8">
+          <div>
+            <p className="text-sm text-muted-foreground">Database</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">Профили подключений</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Сохранённые подключения к базам данных.</p>
+          </div>
+          <Button onClick={() => navigate("/databaseWork/new")}>Добавить подключение</Button>
+        </header>
+
+        <section className="flex flex-wrap content-start gap-3 p-4 md:p-6">
+          {hasConnections ? connections.map((item, index) => (
+            <DatabaseProfile {...item} index={index} key={`${item.User}@${item.Host}/${item.Dbname}-${index}`} />
+          )) : (
+            <Card className="w-full border-dashed">
+              <CardHeader>
+                <CardTitle>Пока нет подключений</CardTitle>
+                <CardDescription>Добавьте профиль базы данных. Форма откроется в Database Work.</CardDescription>
+                <Button className="mt-3 w-fit" onClick={() => navigate("/databaseWork/new")}>Создать профиль</Button>
+              </CardHeader>
+            </Card>
+          )}
+        </section>
+      </main>
+    </div>
   );
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -93,21 +94,22 @@ func (d *DataAdmin) GetTableSchema(connection_id string) (map[string][]ColumnMet
 
 func (d *DataAdmin) Connect(conn_settings ConnectionSettings) (string, error) {
 
-	log.Printf("DEBUG Connect settings: %+v", conn_settings)
 	connection_string := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		conn_settings.Host, conn_settings.Port,
 		conn_settings.User, conn_settings.Password,
 		conn_settings.Dbname, conn_settings.Sslmode,
 	)
-	log.Printf("DEBUG connection string: %s", connection_string)
 	db, err := sqlx.Connect(
 		conn_settings.Database, connection_string,
 	)
+	if err != nil {
+		return "", err
+	}
 	connection_id := uuid.New().String()
-	d.muBlock.RLock()
+	d.muBlock.Lock()
 	d.connections[connection_id] = db
-	d.muBlock.RUnlock()
+	d.muBlock.Unlock()
 	return connection_id, err
 }
 func (d *DataAdmin) GetJSONschema(connection_id string) (result string, err error) {
@@ -123,15 +125,22 @@ func (d *DataAdmin) GetJSONschema(connection_id string) (result string, err erro
 	return string(json_schema), err
 }
 
-func (d *DataAdmin) Execute(connection_id string, request string) (result sql.Result, err error) {
+func (d *DataAdmin) Execute(connection_id string, request string) (string, error) {
 	d.muBlock.RLock()
 	db, correct := d.connections[connection_id]
 	d.muBlock.RUnlock()
 	if !correct {
-		return nil, fmt.Errorf("connection not found")
+		return "", fmt.Errorf("connection not found")
 	}
-	result, err = db.Exec(request)
-	return result, err
+	result, err := db.Exec(request)
+	if err != nil {
+		return "", err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return "SQL выполнен успешно, но драйвер не вернул число изменённых строк.", nil
+	}
+	return fmt.Sprintf("SQL выполнен успешно. Затронуто строк: %d.", rowsAffected), nil
 }
 
 func (d *DataAdmin) Query(connection_id string, request string) ([]map[string]interface{}, error) {
@@ -146,14 +155,28 @@ func (d *DataAdmin) Query(connection_id string, request string) ([]map[string]in
 		return nil, err
 	}
 	defer rows.Close()
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
+	binaryColumns := make(map[string]bool, len(columnTypes))
+	for _, column := range columnTypes {
+		binaryColumns[column.Name()] = strings.EqualFold(column.DatabaseTypeName(), "BYTEA")
+	}
 	var result []map[string]interface{}
 	for rows.Next() {
-
-		row_map := make(map[string]interface{})
-		err = rows.MapScan(row_map)
-		result = append(result, row_map)
+		row := make(map[string]interface{})
+		if err := rows.MapScan(row); err != nil {
+			return nil, err
+		}
+		for name, value := range row {
+			if bytes, ok := value.([]byte); ok && !binaryColumns[name] {
+				row[name] = string(bytes)
+			}
+		}
+		result = append(result, row)
 	}
-	return result, err
+	return result, rows.Err()
 }
 
 func (d *DataAdmin) JSONQuery(connection_id string, request string) (string, error) {
@@ -168,11 +191,14 @@ func (d *DataAdmin) JSONQuery(connection_id string, request string) (string, err
 }
 
 func (d *DataAdmin) Close(connection_id string) {
-	d.muBlock.RLock()
+	d.muBlock.Lock()
 	db, correct := d.connections[connection_id]
-	d.muBlock.RUnlock()
-	if !correct {
-		db.Close()
+	if correct {
+		delete(d.connections, connection_id)
+	}
+	d.muBlock.Unlock()
+	if correct {
+		_ = db.Close()
 	}
 
 }

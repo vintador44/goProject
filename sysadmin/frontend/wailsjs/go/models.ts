@@ -47,6 +47,7 @@ export namespace sysagent {
 	}
 	export class Metrics {
 	    hostname: string;
+	    agent_token?: string;
 	    cpu_percent: number;
 	    ram_percent: number;
 	    gpu_percent: number;
@@ -67,6 +68,7 @@ export namespace sysagent {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.hostname = source["hostname"];
+	        this.agent_token = source["agent_token"];
 	        this.cpu_percent = source["cpu_percent"];
 	        this.ram_percent = source["ram_percent"];
 	        this.gpu_percent = source["gpu_percent"];

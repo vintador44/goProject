@@ -20,6 +20,7 @@ func main() {
 	monitor := &sysmon.SystemMonitor{}
 	db_data := data_admin.NewDataAdmin()
 	sys_agent := sysagent.New()
+	remote_sys_agent := sysagent.NewRemoteClient()
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:  "frontend",
@@ -35,6 +36,7 @@ func main() {
 			monitor,
 			db_data,
 			sys_agent,
+			remote_sys_agent,
 		},
 	})
 

@@ -1,4 +1,5 @@
 import socket
+import ssl
 import json
 import time
 import psutil
@@ -81,6 +82,19 @@ def _apply_remote_key_event(event, controller):
         controller.release(key)
     else:
         raise ValueError("неизвестное клавиатурное событие")
+
+
+def connect_server_socket(server_ip, port, timeout=10):
+    raw = socket.create_connection((server_ip, port), timeout=timeout)
+    if os.environ.get("SYSADMIN_USE_TLS", "").lower() not in ("1", "true", "yes"):
+        return raw
+    context = ssl.create_default_context()
+    server_name = os.environ.get("SYSADMIN_SERVER_NAME", server_ip)
+    try:
+        return context.wrap_socket(raw, server_hostname=server_name)
+    except Exception:
+        raw.close()
+        raise
 
 
 def is_already_running():
@@ -171,8 +185,7 @@ def _remote_desktop_client_windows(server_ip):
     ).start()
 
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((server_ip, RDP_PORT))
+        with connect_server_socket(server_ip, RDP_PORT) as s:
             s.setblocking(False)
             buffer = b""
             last_shot_time = 0
@@ -274,10 +287,12 @@ def remote_shell_client(server_ip):
                      args=("🔌 БЕЗОПАСНОСТЬ: Администратор открыл удаленный терминал (CMD)", None),
                      daemon=True).start()
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((server_ip, SHELL_PORT))
+        with connect_server_socket(server_ip, SHELL_PORT) as s:
             with s.makefile("rwb") as stream:
-                handshake = {"hostname": platform.node()}
+                handshake = {
+                    "hostname": platform.node(),
+                    "agent_token": os.environ.get("SYSADMIN_AGENT_TOKEN", ""),
+                }
                 stream.write((json.dumps(handshake) + "\n").encode("utf-8"))
                 stream.flush()
 
@@ -345,7 +360,7 @@ def remote_desktop_client(server_ip):
 
 
 def _remote_desktop_client_x11(server_ip):
-    """Capture an X11 desktop and forward normalized mouse clicks."""
+    """Capture an X11 desktop and handle remote mouse and keyboard input."""
     import io
 
     try:
@@ -366,7 +381,7 @@ def _remote_desktop_client_x11(server_ip):
     ).start()
 
     try:
-        with socket.create_connection((server_ip, RDP_PORT), timeout=10) as sock:
+        with connect_server_socket(server_ip, RDP_PORT, timeout=10) as sock:
             sock.setblocking(False)
             command_buffer = b""
             last_frame = 0.0
@@ -659,10 +674,12 @@ def send_data():
             if not server_ip:
                 server_ip = discover_server_ip()
             if server_ip:
+                agent_token = os.environ.get("SYSADMIN_AGENT_TOKEN", "")
+                if agent_token:
+                    data["agent_token"] = agent_token
                 payload = json.dumps(data).encode('utf-8')
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                with connect_server_socket(server_ip, TCP_PORT, timeout=3) as s:
                     s.settimeout(3)
-                    s.connect((server_ip, TCP_PORT))
                     s.sendall(payload)
                     server_response = s.recv(1024).decode('utf-8')
                     handle_server_command(server_response, server_ip)

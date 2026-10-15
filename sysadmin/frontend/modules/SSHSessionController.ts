@@ -9,13 +9,9 @@ export type SSHSessionStatus =
   | "closed"
   | "error";
 
-  function isIPv4(s: string): boolean {
-  const parts = s.split(".");
-  if (parts.length !== 4) return false;
-  return parts.every(
-    (p) => /^\d{1,3}$/.test(p) && Number(p) <= 255 && String(Number(p)) === p
-  );
-}
+export type SSHSessionAPI = Pick<typeof SysAgentAPI,
+  "StartSSHSessionByHostname" | "WriteSSHSession" | "ReadSSHSession" | "CloseSSHSession"
+> & Partial<Pick<typeof SysAgentAPI, "StartSSHSessionByIP">>;
 
 export class SSHSessionController {
   private sessionId: string | null = null;
@@ -28,15 +24,19 @@ export class SSHSessionController {
      private readonly username: string,
     private readonly terminal: Terminal,
     private readonly onStatus: (status: SSHSessionStatus, detail?: string) => void,
+    private readonly api: SSHSessionAPI = SysAgentAPI,
+    private readonly connectByIP = false,
   ) {}
 
   async start(): Promise<void> {
     try {
       this.onStatus("preparing");
       
-      const sessionId = await (!isIPv4(this.hostname) ? SysAgentAPI.StartSSHSessionByHostname(this.hostname): SysAgentAPI.StartSSHSessionByIP(this.hostname, this.username));
+      const sessionId = this.connectByIP
+        ? await this.api.StartSSHSessionByIP!(this.hostname, this.username)
+        : await this.api.StartSSHSessionByHostname(this.hostname);
       if (this.closed) {
-        await SysAgentAPI.CloseSSHSession(sessionId);
+        await this.api.CloseSSHSession(sessionId);
         return;
       }
 
@@ -55,7 +55,7 @@ export class SSHSessionController {
   async write(data: string): Promise<void> {
     if (!this.sessionId || this.closed) return;
     try {
-      await SysAgentAPI.WriteSSHSession(this.sessionId, data);
+      await this.api.WriteSSHSession(this.sessionId, data);
     } catch (error: unknown) {
       if (this.closed) return;
       this.onStatus("error", this.errorMessage(error));
@@ -72,7 +72,7 @@ export class SSHSessionController {
     const sessionId = this.sessionId;
     this.sessionId = null;
     if (sessionId) {
-      await SysAgentAPI.CloseSSHSession(sessionId);
+      await this.api.CloseSSHSession(sessionId);
     }
   }
 
@@ -89,7 +89,7 @@ export class SSHSessionController {
     this.polling = true;
     try {
       const update: sysagent.SSHSessionUpdate =
-        await SysAgentAPI.ReadSSHSession(this.sessionId);
+        await this.api.ReadSSHSession(this.sessionId);
       if (this.closed) return;
       if (update.output) this.terminal.write(update.output);
       if (!update.running) {

@@ -32,6 +32,7 @@ export const SSHProfile = ({username,ip} : SSHProfilesProps) => {
               <SSHTerminal
               username={username}
                 hostname={ip}
+              connectByIP
                 onClose={() => setSshTerminalOpen(false)}
               />
             )}

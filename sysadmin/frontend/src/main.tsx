@@ -6,9 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import InformationPage from "../pages/InformationPage"
 import DatabasePage from "../pages/DatabasesPage"
-import DatabaseCreate from "../pages/DatabaseCreate"
 import DatabaseWork from "../pages/DatabaseWork"
 import SysAgent from "../pages/SysAgent"
+import RemoteSysAgent from "../pages/RemoteSysAgent"
 import SSHProfiles from "../pages/SSHProfiles"
 
 const container = document.getElementById('root')
@@ -20,9 +20,9 @@ root.render(
             <Routes>
                 <Route path="/" element={<InformationPage />} />
                 <Route path="/databaseProfiles" element={<DatabasePage />} />
-                <Route path="/databaseCreate" element={<DatabaseCreate />} />
                 <Route path="/databaseWork/:index" element={<DatabaseWork />} />
                 <Route path="/SysAgent" element={<SysAgent />} />
+                <Route path="/RemoteSysAgent" element={<RemoteSysAgent />} />
                 <Route path="/SSHProfiles" element={<SSHProfiles />} />
                 <Route path="*" element={<InformationPage />} />
             </Routes>
